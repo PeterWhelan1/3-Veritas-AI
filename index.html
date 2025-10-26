@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Veritas AI — Values Survey (Present vs 2075)</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+    // --- 1) CONFIG: put your Supabase details here ---
+    const SUPABASE_URL = https://svkmcjmwcuzmlmktnycp.supabase.co;
+    const SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2a21jam13Y3V6bWxta3RueWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE1MDIxMTcsImV4cCI6MjA3NzA3ODExN30.yk6SoHiD9pbIOdt6DT8oee0t6pCnY_knGFlH2nEs0JY;
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // --- 2) Anonymous user id for duplicate prevention ---
+    function getOrCreateUserId() {
+      let id = localStorage.getItem("veritas_user_id");
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem("veritas_user_id", id);
+      }
+      return id;
+    }
+    const USER_ID = getOrCreateUserId();
+
+    // --- 3) Utility: clamp + make sums = 100 ---
+    function normalise(a, b, c) {
+      const total = a + b + c;
+      if (total === 0) return {a: 34, b: 33, c: 33};
+      const k = 100 / total;
+      return { a: Math.round(a*k), b: Math.round(b*k), c: Math.round(c*k) };
+    }
+
+    // --- 4) Plot & Controls wiring ---
+    const VALUES = ["Public Safety", "Civil Liberties", "Accountability & Transparency"];
+
+    function makeFigure(containerId, sliders, state) {
+      const layout = {
+        ternary: {
+          aaxis: { title: VALUES[0], min: 0, linewidth: 1, ticks: 'outside' },
+          baxis: { title: VALUES[1], min: 0, linewidth: 1, ticks: 'outside' },
+          caxis: { title: VALUES[2], min: 0, linewidth: 1, ticks: 'outside' }
+        },
+        margin: { l: 30, r: 30, b: 30, t: 10 },
+        showlegend: false,
+        height: 420
+      };
+
+      const trace = {
+        type: "scatterternary",
+        mode: "markers",
+        a: [state.a],
+        b: [state.b],
+        c: [state.c],
+        marker: { size: 12 }
+      };
+
+      Plotly.newPlot(containerId, [trace], layout, {displayModeBar: false});
+
+      // keep plot in sync with sliders
+      const update = () => {
+        const x = normalise(
+          parseInt(sliders.a.value),
+          parseInt(sliders.b.value),
+          parseInt(sliders.c.value)
+        );
+        sliders.a.value = x.a; sliders.b.value = x.b; sliders.c.value = x.c;
+        document.getElementById(sliders.labelId).textContent = `${x.a}% • ${x.b}% • ${x.c}%`;
+        Plotly.restyle(containerId, { a: [[x.a]], b: [[x.b]], c: [[x.c]] }, [0]);
+        return x;
+      };
+
+      // sliders share total 100
+      ["a","b","c"].forEach(k => sliders[k].addEventListener("input", update));
+      update(); // initial render
+
+      // optional: click anywhere on ternary? (simple: map nearest of 100 steps)
+      document.getElementById(containerId).on('plotly_click', (ev) => {
+        // Fallback approach: do nothing special; sliders are the primary control
+        // (Click-to-place is non-trivial on ternary SVG; sliders satisfy "place a dot" with visible feedback)
+      });
+
+      return { update };
+    }
+
+    // --- 5) Page init ---
+    window.addEventListener("DOMContentLoaded", () => {
+      // PRESENT
+      const presentSliders = {
+        a: document.getElementById("present-a"),
+        b: document.getElementById("present-b"),
+        c: document.getElementById("present-c"),
+        labelId: "present-label"
+      };
+      const presentPlot = makeFigure("present-plot", presentSliders, {a:34,b:33,c:33});
+      document.getElementById("present-submit").addEventListener("click", async () => {
+        if (localStorage.getItem("submitted_present") === "true") {
+          alert("You’ve already submitted the Present values from this browser.");
+          return;
+        }
+        const {a,b,c} = presentPlot.update();
+        const { error } = await supabase.from("responses").insert({
+          user_id: USER_ID, plot_type: "present", a, b, c
+        });
+        if (error) {
+          if (error.message.includes("duplicate key")) {
+            alert("Already submitted the Present values. Thank you!");
+          } else {
+            alert("Error saving. Please try again.");
+            console.error(error);
+            return;
+          }
+        }
+        localStorage.setItem("submitted_present", "true");
+        alert("Thanks — Present submitted.");
+      });
+
+      // 2075
+      const futureSliders = {
+        a: document.getElementById("future-a"),
+        b: document.getElementById("future-b"),
+        c: document.getElementById("future-c"),
+        labelId: "future-label"
+      };
+      const futurePlot = makeFigure("future-plot", futureSliders, {a:34,b:33,c:33});
+      document.getElementById("future-submit").addEventListener("click", async () => {
+        if (localStorage.getItem("submitted_2075") === "true") {
+          alert("You’ve already submitted the 2075 values from this browser.");
+          return;
+        }
+        const {a,b,c} = futurePlot.update();
+        const { error } = await supabase.from("responses").insert({
+          user_id: USER_ID, plot_type: "2075", a, b, c
+        });
+        if (error) {
+          if (error.message.includes("duplicate key")) {
+            alert("Already submitted the 2075 values. Thank you!");
+          } else {
+            alert("Error saving. Please try again.");
+            console.error(error);
+            return;
+          }
+        }
+        localStorage.setItem("submitted_2075", "true");
+        alert("Thanks — 2075 submitted.");
+      });
+    });
+  </script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .slider-row { display: grid; grid-template-columns: 140px 1fr 56px; gap: 10px; align-items: center; }
+    .muted { color: #6b7280; font-size: 0.9rem; }
+    button { padding: 10px 14px; border-radius: 9999px; border: 0; background: black; color: white; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <header class="card">
+    <h1>Veritas AI — Public Values Survey</h1>
+    <p class="muted">Indicate how you think society prioritises these values <strong>now</strong> and in <strong>2075</strong>:</p>
+    <ul class="muted">
+      <li><strong>Public Safety</strong></li>
+      <li><strong>Civil Liberties</strong></li>
+      <li><strong>Accountability & Transparency</strong></li>
+    </ul>
+    <p class="muted">Your browser gets a random ID so we can limit to one submission per plot. We store only your choices and an anonymous ID.</p>
+  </header>
+
+  <section class="card">
+    <h2>Present (2025)</h2>
+    <div id="present-plot"></div>
+    <div class="grid">
+      <div>
+        <div class="slider-row">
+          <label>Public Safety</label>
+          <input id="present-a" type="range" min="0" max="100" value="34">
+          <span>%</span>
+        </div>
+        <div class="slider-row">
+          <label>Civil Liberties</label>
+          <input id="present-b" type="range" min="0" max="100" value="33">
+          <span>%</span>
+        </div>
+        <div class="slider-row">
+          <label>Accountability &amp; Transparency</label>
+          <input id="present-c" type="range" min="0" max="100" value="33">
+          <span>%</span>
+        </div>
+        <p class="muted">Totals: <span id="present-label">34% • 33% • 33%</span></p>
+      </div>
+      <div style="display:flex; align-items:end; justify-content:flex-end;">
+        <button id="present-submit">Submit Present</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Year 2075</h2>
+    <div id="future-plot"></div>
+    <div class="grid">
+      <div>
+        <div class="slider-row">
+          <label>Public Safety</label>
+          <input id="future-a" type="range" min="0" max="100" value="34">
+          <span>%</span>
+        </div>
+        <div class="slider-row">
+          <label>Civil Liberties</label>
+          <input id="future-b" type="range" min="0" max="100" value="33">
+          <span>%</span>
+        </div>
+        <div class="slider-row">
+          <label>Accountability &amp; Transparency</label>
+          <input id="future-c" type="range" min="0" max="100" value="33">
+          <span>%</span>
+        </div>
+        <p class="muted">Totals: <span id="future-label">34% • 33% • 33%</span></p>
+      </div>
+      <div style="display:flex; align-items:end; justify-content:flex-end;">
+        <button id="future-submit">Submit 2075</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="muted">
+    <p>© Veritas AI (student project). Please only submit once for each plot.</p>
+  </footer>
+  <!-- Supabase JS (module import used above) -->
+</body>
+</html>
